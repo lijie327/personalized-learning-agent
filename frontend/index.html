@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智慧教育平台</title>
+    <link rel="stylesheet" href="/static/style.css?v=3">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- 顶部导航 -->
+        <header class="header">
+            <div class="logo">📚 智慧教育平台</div>
+            <div class="user-info">
+                <span class="user-name">张同学</span>
+                <span class="user-level">Lv.12</span>
+            </div>
+        </header>
+
+        <!-- 主体三栏布局 -->
+        <div class="main-layout">
+            <!-- 左侧：课程选择 -->
+            <aside class="left-panel">
+                <div class="panel-header">
+                    <h3>📖 课程选择</h3>
+                </div>
+
+                <!-- 科目列表 -->
+                <div class="subject-tabs">
+                    <button class="subject-btn active" data-subject="python">
+                        <span class="icon">🐍</span>
+                        <span>Python</span>
+                    </button>
+                    <button class="subject-btn" data-subject="algorithm">
+                        <span class="icon">🌲</span>
+                        <span>数据结构</span>
+                    </button>
+                    <button class="subject-btn" data-subject="math">
+                        <span class="icon">📐</span>
+                        <span>数学</span>
+                    </button>
+                </div>
+
+                <!-- 知识点树 -->
+                <div class="knowledge-tree-container">
+                    <h4>知识点目录</h4>
+                    <ul class="knowledge-tree" id="knowledgeTree">
+                        <!-- 动态生成 -->
+                    </ul>
+                </div>
+            </aside>
+
+            <!-- 中间：对话区 -->
+            <main class="center-panel">
+                <div class="chat-header">
+                    <h3>💬 智能学习助手</h3>
+                    <span class="current-subject">当前: Python基础</span>
+                </div>
+
+                <div class="chat-messages" id="chatMessages">
+                    <!-- 欢迎消息 -->
+                    <div class="message ai-message">
+                        <div class="avatar">🤖</div>
+                        <div class="message-content">
+                            <div class="message-header">
+                                <span class="sender">AI助教</span>
+                                <span class="teaching-mode mode-direct">直接教学</span>
+                            </div>
+                            <div class="message-body">
+                                <p>你好！我是你的AI学习助手，有什么问题直接问我，我会为你详细解答！💡</p>
+                            </div>
+                            <div class="message-footer">
+                                <span class="timestamp">刚刚</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 输入区 -->
+                <div class="input-area">
+                    <div class="input-toolbar">
+                        <button class="toolbar-btn" id="toggleCodeEditor">⌨️ 代码运行器</button>
+                        <button class="toolbar-btn" id="uploadImage">📷 上传图片</button>
+                        <select class="subject-select" id="quickSubjectSelect">
+                            <option value="python">Python</option>
+                            <option value="algorithm">数据结构</option>
+                            <option value="math">数学</option>
+                        </select>
+                    </div>
+                    <!-- 内联代码编辑器（默认隐藏） -->
+                    <div class="inline-code-editor" id="inlineCodeEditor" style="display:none;">
+                        <div class="code-editor-header">
+                            <span class="code-editor-title">✏️ Python 代码</span>
+                            <div class="code-editor-actions">
+                                <button class="code-editor-btn clear-btn" id="clearCodeBtn">清空</button>
+                                <button class="code-editor-btn run-btn" id="runCodeBtn">▶ 运行</button>
+                            </div>
+                        </div>
+                        <textarea id="codeEditorInput" placeholder="在这里编写 Python 代码，点击 ▶ 运行 立即执行..." rows="6"></textarea>
+                    </div>
+                    <div class="input-box">
+                        <textarea id="messageInput" placeholder="输入你的问题..." rows="3"></textarea>
+                        <button class="send-btn" id="sendBtn">
+                            <span>发送</span>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- 右侧：学情面板 -->
+            <aside class="right-panel">
+                <div class="panel-header">
+                    <h3>📊 学情分析</h3>
+                </div>
+
+                <!-- 知识图谱可视化 -->
+                <div class="knowledge-graph-section">
+                    <h4>知识掌握图谱</h4>
+                    <div id="knowledgeGraph" class="knowledge-graph"></div>
+                    <div class="graph-legend">
+                        <span><span class="legend-dot mastered"></span>已掌握</span>
+                        <span><span class="legend-dot weak"></span>薄弱点</span>
+                        <span><span class="legend-dot learning"></span>学习中</span>
+                        <span><span class="legend-dot unstudied"></span>未学习</span>
+                    </div>
+                </div>
+
+                <!-- 学习进度 -->
+                <div class="progress-section">
+                    <h4>学习进度</h4>
+                    <div class="progress-item">
+                        <span class="progress-label">Python基础</span>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 78%"></div>
+                        </div>
+                        <span class="progress-value">78%</span>
+                    </div>
+                    <div class="progress-item">
+                        <span class="progress-label">数据结构</span>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 45%"></div>
+                        </div>
+                        <span class="progress-value">45%</span>
+                    </div>
+                    <div class="progress-item">
+                        <span class="progress-label">数学</span>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 62%"></div>
+                        </div>
+                        <span class="progress-value">62%</span>
+                    </div>
+                </div>
+
+                <!-- 推荐复习 -->
+                <div class="recommendation-section">
+                    <h4>📌 推荐复习</h4>
+                    <ul class="review-list" id="reviewList">
+                        <li class="review-item">
+                            <span class="review-topic">函数递归</span>
+                            <span class="review-priority high">高优先级</span>
+                        </li>
+                        <li class="review-item">
+                            <span class="review-topic">链表操作</span>
+                            <span class="review-priority medium">中优先级</span>
+                        </li>
+                        <li class="review-item">
+                            <span class="review-topic">微分基础</span>
+                            <span class="review-priority low">低优先级</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- 今日统计 -->
+                <div class="stats-section">
+                    <h4>今日学习</h4>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-value">45</span>
+                            <span class="stat-label">分钟</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value">12</span>
+                            <span class="stat-label">道题</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value">8</span>
+                            <span class="stat-label">个知识点</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- 代码运行模态框 -->
+    <div class="modal" id="codeModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🚀 代码运行结果</h3>
+                <button class="close-btn" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="code-section">
+                    <h4>源代码</h4>
+                    <pre><code id="modalCode" class="language-python"></code></pre>
+                </div>
+                <div class="output-section">
+                    <h4>运行输出</h4>
+                    <div id="codeOutput" class="output-box"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=4"></script>
+</body>
+</html>

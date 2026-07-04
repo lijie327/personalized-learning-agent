@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # Traefik 反向代理
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=admin@company.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
+    networks:
+      - edu_network
+
+  # Python课程实例
+  python-course:
+    build: .
+    container_name: python_course
+    environment:
+      - COURSE_NAME=python
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.python.rule=Host(`python-course.company.com`)"
+      - "traefik.http.routers.python.entrypoints=websecure"
+      - "traefik.http.routers.python.tls.certresolver=letsencrypt"
+      - "traefik.http.services.python.loadbalancer.server.port=8003"
+    networks:
+      - edu_network
+
+  # 数据结构课程实例
+  ds-course:
+    build: .
+    container_name: ds_course
+    environment:
+      - COURSE_NAME=data_structures
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ds.rule=Host(`ds-course.company.com`)"
+      - "traefik.http.routers.ds.entrypoints=websecure"
+      - "traefik.http.routers.ds.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ds.loadbalancer.server.port=8003"
+    networks:
+      - edu_network
+
+  # 数学课程实例
+  math-course:
+    build: .
+    container_name: math_course
+    environment:
+      - COURSE_NAME=math
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.math.rule=Host(`math-course.company.com`)"
+      - "traefik.http.routers.math.entrypoints=websecure"
+      - "traefik.http.routers.math.tls.certresolver=letsencrypt"
+      - "traefik.http.services.math.loadbalancer.server.port=8003"
+    networks:
+      - edu_network
+
+networks:
+  edu_network:
+    driver: bridge
