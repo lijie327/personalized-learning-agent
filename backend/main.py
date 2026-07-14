@@ -24,7 +24,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.config import HOST, PORT, UPLOAD_DIR
+from backend.config import HOST, PORT, UPLOAD_DIR, ALLOWED_ORIGINS, DASHSCOPE_API_KEY
 from backend.llm import QwenEmbeddings
 from backend.memory import LearningMemory
 from backend.rag import EducationKnowledgeBase
@@ -35,6 +35,7 @@ from backend.agents.knowledge_agent import KnowledgeAgent, set_shared_knowledge_
 from backend.agents.assessor_agent import AssessorAgent
 from backend.tools.mcp_tools import mcp_manager
 from backend.api import router as api_router, init_agents
+from backend.graph import init_graph_globals, get_compiled_graph
 
 
 # ===================================================================
@@ -106,6 +107,13 @@ async def lifespan(app: FastAPI):
     print("=" * 50)
     print("[START] Initializing Tutor Agent System...")
     print("=" * 50)
+
+    # 启动前检查：缺少 API Key 会导致 LLM / Embedding 全部不可用
+    if not DASHSCOPE_API_KEY:
+        print(
+            "[WARN] 未检测到 DASHSCOPE_API_KEY，LLM / Embedding 调用将失败！\n"
+            "       请在项目根目录 .env 中设置 DASHSCOPE_API_KEY=sk-... 后重启。"
+        )
 
     # 1. 初始化 Embeddings
     print("[1/8] Initializing QwenEmbeddings...")
@@ -186,6 +194,16 @@ async def lifespan(app: FastAPI):
     )
     print("   [OK] API registration done")
 
+    # 9. 构建并编译 LangGraph supervisor 多 Agent 图（注入知识库 / 记忆）
+    #    编译失败会在启动时暴露，避免首个请求才崩溃。
+    print("[9/9] Building LangGraph supervisor multi-agent graph...")
+    try:
+        init_graph_globals(knowledge_base=knowledge_base, memory=memory)
+        get_compiled_graph()
+        print("   [OK] LangGraph graph compiled (supervisor + 4 specialists)")
+    except Exception as e:
+        print(f"   [WARN] LangGraph graph build failed (NORMAL 路径将返回错误): {e}")
+
     print("=" * 50)
     print("[READY] Tutor Agent System initialized!")
     print(f"   URL: http://{HOST}:{PORT}")
@@ -221,7 +239,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Tutor Agent 教学辅导系统",
-    description="基于 LangGraph 的多 Agent 教学辅导系统",
+    description="多 Agent 教学辅导系统（FastAPI + LangGraph supervisor 多 Agent 编排 + RAG）",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
@@ -229,10 +247,12 @@ app = FastAPI(
 )
 
 # CORS
+# 注意：allow_origins 为 "*" 时不能携带凭据（凭据必须配合显式来源列表）。
+# 当 ALLOWED_ORIGINS 显式指定了来源时，才开启 allow_credentials。
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=bool(ALLOWED_ORIGINS and ALLOWED_ORIGINS != ["*"]),
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -5,9 +5,9 @@
 
 import base64
 from pathlib import Path
-from typing import Generator, List, Optional
+from typing import AsyncGenerator, Generator, List, Optional
 
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from backend.config import DASHSCOPE_API_KEY, DASHSCOPE_BASE_URL, LLM_MODEL, EMBEDDING_MODEL, VISION_MODEL
 
@@ -34,6 +34,11 @@ class QwenLLM:
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.client = OpenAI(
+            api_key=DASHSCOPE_API_KEY,
+            base_url=DASHSCOPE_BASE_URL,
+        )
+        # 异步客户端：供 FastAPI 异步路由使用，避免阻塞事件循环
+        self.async_client = AsyncOpenAI(
             api_key=DASHSCOPE_API_KEY,
             base_url=DASHSCOPE_BASE_URL,
         )
@@ -140,6 +145,74 @@ class QwenLLM:
         )
 
         for chunk in response:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
+
+    # ------------------------------------------------------------------
+    #  异步版本（供 FastAPI 异步路由使用，避免阻塞事件循环）
+    # ------------------------------------------------------------------
+
+    async def ainvoke(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        """异步调用，返回完整回复文本。"""
+        messages = self._build_messages(prompt, system_prompt)
+        response = await self.async_client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+        )
+        return response.choices[0].message.content or ""
+
+    async def ainvoke_with_history(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        history: Optional[list[dict]] = None,
+    ) -> str:
+        """异步调用，带对话历史。"""
+        messages = self._build_messages_with_history(prompt, system_prompt, history)
+        response = await self.async_client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+        )
+        return response.choices[0].message.content or ""
+
+    async def astream(
+        self, prompt: str, system_prompt: Optional[str] = None
+    ) -> AsyncGenerator[str, None]:
+        """异步流式调用，逐步产出回复文本片段。"""
+        messages = self._build_messages(prompt, system_prompt)
+        stream = await self.async_client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
+
+    async def astream_with_history(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        history: Optional[list[dict]] = None,
+    ) -> AsyncGenerator[str, None]:
+        """异步流式调用，带对话历史。"""
+        messages = self._build_messages_with_history(prompt, system_prompt, history)
+        stream = await self.async_client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            stream=True,
+        )
+        async for chunk in stream:
             delta = chunk.choices[0].delta
             if delta.content:
                 yield delta.content

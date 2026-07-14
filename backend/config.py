@@ -5,6 +5,8 @@
 
 import os
 from pathlib import Path
+from typing import List
+
 from dotenv import load_dotenv
 
 # 加载项目根目录下的 .env 文件
@@ -23,6 +25,12 @@ VISION_MODEL: str = os.getenv("VISION_MODEL", "qwen-vl-max")
 # ---------- 服务配置 ----------
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
+
+# CORS 允许的来源（逗号分隔）。设为 "*" 表示允许全部（此时不携带凭据）。
+# 生产环境建议显式指定前端域名，例如 "https://app.example.com,https://admin.example.com"
+ALLOWED_ORIGINS: List[str] = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()
+]
 
 # ---------- 文件上传 ----------
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent

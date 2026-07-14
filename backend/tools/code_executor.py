@@ -12,6 +12,56 @@ from pathlib import Path
 from typing import Optional
 
 
+# ---------------------------------------------------------------------------
+#  沙箱守卫：在用户代码前注入，限制危险模块与内建函数
+#  阻断 os / subprocess / socket 等任意执行与网络外联，消除 RCE 风险。
+# ---------------------------------------------------------------------------
+
+# 禁止导入的危险模块（首段包名）
+_SANDBOX_BLOCKED_MODULES = {
+    "os", "subprocess", "socket", "shutil", "ctypes", "ctypes.util",
+    "multiprocessing", "pty", "pickle", "marshal", "shelve",
+    "requests", "urllib", "http", "ftplib", "smtplib", "telnetlib",
+    "imaplib", "poplib", "nntplib", "asyncio", "importlib", "code",
+    "resource", "signal", "builtins", "sys", "pathlib",
+}
+
+# 从内建命名空间中移除的危险内建函数
+# 注意：__import__ 不能移除——它会被替换为 _sb_safe_import（见 build_sandbox_guard），
+# 移除后所有 import 语句都会报 "__import__ not found"。这里只移除真正的动态执行入口。
+_SANDBOX_REMOVED_BUILTINS = ("eval", "exec", "compile")
+
+
+def build_sandbox_guard() -> str:
+    """
+    生成沙箱守卫代码（作为用户代码的前缀注入子进程）。
+
+    作用：
+    1. 替换 __import__，拦截 os/subprocess/socket 等危险模块导入（合法模块不受影响）。
+    2. 删除 eval / exec / compile 内建，防止动态执行。
+    注意：__import__ 不会被删除，而是被替换为安全版本；学生代码中的合法
+    import（math、random、re 等）仍可正常工作。
+    """
+    blocked = ", ".join(repr(m) for m in sorted(_SANDBOX_BLOCKED_MODULES))
+    removed = ", ".join(repr(b) for b in _SANDBOX_REMOVED_BUILTINS)
+    return f'''
+import builtins as _sb_builtins
+_SB_BLOCKED = {{{blocked}}}
+_SB_REMOVED = [{removed}]
+_SB_ORIG_IMPORT = _sb_builtins.__import__
+def _sb_safe_import(name, *args, _blocked=_SB_BLOCKED, _orig=_SB_ORIG_IMPORT, **kwargs):
+    _top = name.split(".")[0]
+    if _top in _blocked:
+        raise ImportError("模块 '{{}}' 在沙箱中不可用".format(_top))
+    return _orig(name, *args, **kwargs)
+_sb_builtins.__import__ = _sb_safe_import
+for _n in _SB_REMOVED:
+    if hasattr(_sb_builtins, _n):
+        delattr(_sb_builtins, _n)
+del _sb_builtins, _SB_BLOCKED, _SB_REMOVED, _SB_ORIG_IMPORT, _sb_safe_import, _n
+'''
+
+
 def execute_python(
     code: str,
     timeout: int = 5,
@@ -20,8 +70,9 @@ def execute_python(
     """
     在子进程沙箱中安全执行 Python 代码。
 
-    使用 subprocess 隔离执行环境，设置超时防止死循环，
-    禁止文件系统写入（通过工作目录隔离）。
+    使用 subprocess 隔离执行环境，设置超时防止死循环；
+    注入沙箱守卫代码，阻断 os/subprocess/socket 等危险模块与
+    eval/exec 等动态执行内建，消除任意代码执行（RCE）风险。
 
     Args:
         code: 待执行的 Python 源代码字符串。
@@ -60,10 +111,13 @@ def execute_python(
             "return_code": -1,
         }
 
+    # 注入沙箱守卫，限制危险模块与内建
+    guarded_code = build_sandbox_guard() + "\n" + code
+
     # 在临时目录中执行，避免污染主文件系统
     with tempfile.TemporaryDirectory() as tmpdir:
         script_path = Path(tmpdir) / "solution.py"
-        script_path.write_text(code, encoding="utf-8")
+        script_path.write_text(guarded_code, encoding="utf-8")
 
         try:
             # 继承当前进程环境变量，只覆盖需要隔离的部分

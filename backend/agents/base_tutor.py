@@ -204,22 +204,9 @@ class BaseTutor:
                 # MCP 工具（LangChain BaseTool）使用 .invoke() 方法
                 # 支持单参数调用和关键字参数调用
                 if hasattr(tool, "ainvoke"):
-                    # 异步调用需要事件循环支持，这里使用同步方式
+                    # 使用现代 asyncio.run 调用异步工具（替代已废弃的 get_event_loop）
                     import asyncio
-                    try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            # 当前有事件循环运行中，使用 run_in_executor
-                            import concurrent.futures
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                future = executor.submit(
-                                    asyncio.run, tool.ainvoke(kwargs)
-                                )
-                                return future.result()
-                        else:
-                            return loop.run_until_complete(tool.ainvoke(kwargs))
-                    except RuntimeError:
-                        return asyncio.run(tool.ainvoke(kwargs))
+                    return asyncio.run(tool.ainvoke(kwargs))
                 elif hasattr(tool, "invoke"):
                     return tool.invoke(kwargs)
                 else:

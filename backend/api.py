@@ -113,6 +113,7 @@ class ExerciseEvaluateRequest(BaseModel):
     correct_answer: str = Field(..., description="标准答案")
     student_id: Optional[str] = Field(None, description="学生ID（可选，用于更新薄弱点）")
     topic: Optional[str] = Field(None, description="知识点（可选）")
+    subject: str = Field(default="general", description="科目（用于归类薄弱点，默认 general）")
 
 
 class StudyPlanRequest(BaseModel):
@@ -245,6 +246,29 @@ _KNOWN_SUBJECTS = (
     "data_structures", "数据结构", "assessment", "评估",
     "general",  # 通用但可能是教学相关，继续走教学流程
 )
+
+# 路由学科 → 知识库（RAG）科目映射。
+# 只有落到真实存在知识库集合的科目才会触发检索，避免对无语料的数学等科目做空检索。
+_RAG_SUBJECT_MAP = {
+    "python": "python",
+    "programming": "python",
+    "java": "python",
+    "c++": "python",
+    "c": "python",
+    "javascript": "python",
+    "data_structures": "data_structures",
+}
+
+
+def _rag_subject_for(subject: Optional[str]) -> Optional[str]:
+    """将路由学科映射到知识库科目；若映射不存在或知识库无该集合则返回 None。"""
+    if not subject:
+        return None
+    target = _RAG_SUBJECT_MAP.get(subject.lower())
+    if target and knowledge_base and target in knowledge_base.list_subjects():
+        return target
+    return None
+
 
 # 意图类型
 from enum import Enum
@@ -645,7 +669,7 @@ async def stream_llm_response(
     # --- 普通问题：走 Router → Tutor Agent 流程 ---
 
     # 2. Router 分类（传入对话历史上下文，帮助理解模糊问题如"举个例子"）
-    classification = router_agent.classify(question, profile, chat_history)
+    classification = await router_agent.aclassify(question, profile, chat_history)
     routed_agent_type = classification.get("agent_type", AgentType.KNOWLEDGE)
     subject = classification.get("subject", "general")
     reasoning = classification.get("reasoning", "")
@@ -680,14 +704,13 @@ async def stream_llm_response(
         system_prompt = "你是一个智能助手。请直接、自然地回答用户的问题。用中文回答。"
         full_response = ""
         try:
-            for token in llm.stream_with_history(off_topic_prompt, system_prompt=system_prompt, history=chat_history):
+            async for token in llm.astream_with_history(off_topic_prompt, system_prompt=system_prompt, history=chat_history):
                 full_response += token
                 yield sse_format({
                     "type": "token", "token": token,
                     "agent": "general", "mode": "chat",
                 })
-                await asyncio.sleep(0.01)
-        except RuntimeError as e:
+        except Exception as e:
             yield sse_format({"type": "error", "error": str(e)})
             return
 
@@ -700,221 +723,110 @@ async def stream_llm_response(
         })
         return
 
-    # 3. 获取对应的 Tutor Agent
-    tutor = AGENT_MAP.get(routed_agent_type, knowledge_agent)
+    # 3. 路由到 LangGraph supervisor 多 Agent 图，由其调度 specialist 子图并流式返回
+    async for sse in _stream_via_graph(
+        question=question,
+        student_id=student_id,
+        session_id=session_id,
+        mode=mode,
+        code=code,
+        profile=profile,
+        chat_history=chat_history,
+        classification=classification,
+        weak_points=weak_points,
+    ):
+        yield sse
+    return
 
-    # 4. 构建 MCP 工具上下文
-    mcp_context = _build_mcp_tool_context()
 
-    # 6. 流式生成回复
-    llm = QwenLLM()
+# ---------------------------------------------------------------------------
+#  LangGraph 流式封装：把编译图的事件映射为 SSE
+# ---------------------------------------------------------------------------
 
-    # 代码质量要求（插入到需要生成代码的 prompt 中）
-    code_quality_instruction = """
-## ⚠️ 代码输出要求（极其重要，必须严格遵守）
-当你的回复中包含 Python 代码时，必须遵守：
+async def _stream_via_graph(
+    question: str,
+    student_id: str,
+    session_id: str,
+    mode: str,
+    code: Optional[str],
+    profile: Dict[str, Any],
+    chat_history: List[Dict[str, Any]],
+    classification: Dict[str, Any],
+    weak_points: List[str],
+) -> AsyncGenerator[str, None]:
+    """
+    驱动编译好的 LangGraph 多 Agent 图，并把事件翻译为 SSE 消息。
 
-1. **单一代码块（最关键！）**：
-   - **所有代码必须放在唯一一个 ```python ... ``` 代码块中**
-   -  函数定义和调用代码必须在同一个代码块中，禁止拆分成两个
-   - import 语句、函数/类定义、示例调用、预期输出注释全部合并在同一个代码块内
-   
-2. **完整性**：代码必须包含所有 import 语句，函数/类定义必须完整
+    - on_chat_model_stream → token 事件（逐字流式）
+    - on_tool_end（rag_search）→ sources 事件（前端可展示来源）
+    - generate_exercises 节点结束 → 捕获推荐练习题，用于 done 事件
+    """
+    from backend.graph.builder import get_compiled_graph
 
-3. **可运行性**：代码必须语法正确可运行，提供完整的示例调用，用户复制粘贴后可直接运行
+    graph = get_compiled_graph()
 
-4. **禁止占位**：不能使用 `...`、`pass` 作为核心逻辑的占位符
+    agent_type = classification.get("agent_type", "knowledge")
+    agent_type = agent_type.value if hasattr(agent_type, "value") else agent_type
 
-5. **避免 input()**：使用变量赋值代替交互式输入
+    student_context = _build_student_context(profile)
+    user_msg = f"{student_context}\n\n学生问题：{question}"
+    if code:
+        user_msg += f"\n\n学生提交的代码：\n```python\n{code}\n```"
 
-**正确示例（全部放在一个代码块中）：**
-```python
-# 导入必要的模块
-from typing import List
+    initial_state = {
+        "question": question,
+        "student_id": student_id,
+        "session_id": session_id,
+        "mode": mode,
+        "code": code,
+        "intent": "NORMAL",
+        "profile": profile,
+        "chat_history": chat_history,
+        "classification": classification,
+        "weak_points": weak_points,
+        "rag_sources": [],
+        "rag_context": "",
+        "response": "",
+        "exercises": [],
+        "messages": [{"role": "user", "content": user_msg}],
+    }
 
-def function_name(params):
-    \"\"\"函数说明\"\"\"
-    # 完整的实现代码
-    return result
-
-# 示例调用（必须包含，让学生看到预期输出）
-if __name__ == "__main__":
-    result = function_name(...)
-    print(result)  # 预期输出：...
-```
-
-**错误做法（拆成多个代码块）—— 严禁：**
-- ❌ 代码块1：只有函数定义 → 代码块2：调用代码
-- ❌ 代码块1：代码 → 代码块2：输出结果（输出请用注释写在代码块内 # 预期输出：...）
-
-记住：一个回复中最多只能有一个 ```python 代码块，所有内容合并在其中。"""
-
-    # 根据模式和 Agent 类型构建 prompt
-    if mode == "socratic":
-        if routed_agent_type == AgentType.PROGRAMMING and code:
-            prompt = f"""学生提交了以下代码和问题：
-
-代码：
-```python
-{code}
-```
-
-问题：「{question}」
-{student_context}{mcp_context}
-请用编程教学中的苏格拉底式方法回应：
-1. 先问学生"你觉得代码卡在哪里？"或"你期望的输出是什么？"
-2. 引导学生逐行阅读自己的代码（橡皮鸭调试法）
-3. 用一个小提示引导学生自己发现bug
-4. 不要直接修复代码
-
-请直接输出引导回复："""
-        else:
-            prompt = f"""学生问了以下问题：
-「{question}」
-{student_context}
-{mcp_context}
-请用苏格拉底式教学法回应：
-1. 不要直接给出答案
-2. 先肯定学生的思考
-3. 用 1-2 个引导性反问帮助学生自己发现答案
-4. 如果学生明显卡住了，给出一个小提示
-5. 保持友善和鼓励的语气
-
-请直接输出回复："""
-    else:  # direct mode
-        # 检测是否涉及编程/代码相关的问题
-        is_code_related = (
-            routed_agent_type == AgentType.PROGRAMMING
-            or any(kw in question.lower() for kw in [
-                "代码", "编程", "函数", "写一个", "实现", "算法",
-                "python", "def ", "class ", "import", "怎么写",
-                "代码示例", "demo", "例子", "示例",
-            ])
-        )
-        code_instruction = code_quality_instruction if is_code_related else ""
-
-        prompt = f"""学生需要理解以下内容：
-「{question}」
-{student_context}
-{mcp_context}
-请进行直接教学：
-1. 用清晰的结构讲解核心概念
-2. 配合具体的例子帮助理解
-3. 如果涉及编程，给出完整可运行的代码示例（含 import 和示例调用）
-4. 在最后设置一个检查理解的小问题
-5. 语言简洁明了
-{code_instruction}
-
-请直接输出教学内容："""
-
-    system_prompt = getattr(tutor, "_system_prompt", "你是一位专业的辅导教师。")
-
-    # 流式输出
-    full_response = ""
+    exercises: List[Dict[str, Any]] = []
     try:
-        for token in llm.stream_with_history(prompt, system_prompt=system_prompt, history=chat_history):
-            full_response += token
-            yield sse_format({
-                "type": "token",
-                "token": token,
-                "agent": routed_agent_type.value,
-                "mode": mode,
-            })
-            # 模拟异步间隔
-            await asyncio.sleep(0.01)
-
-    except RuntimeError as e:
-        yield sse_format({
-            "type": "error",
-            "error": str(e),
-        })
+        async for event in graph.astream_events(initial_state, version="v2"):
+            ev = event.get("event", "")
+            if ev == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                token = chunk.content if isinstance(chunk.content, str) else ""
+                if token:
+                    yield sse_format({
+                        "type": "token",
+                        "token": token,
+                        "agent": agent_type,
+                        "mode": mode,
+                    })
+            elif ev == "on_tool_end" and event.get("name") == "rag_search":
+                try:
+                    sources = json.loads(event["data"]["output"])
+                except Exception:
+                    sources = []
+                yield sse_format({
+                    "type": "sources",
+                    "sources": sources,
+                    "agent": agent_type,
+                })
+            elif ev == "on_chain_end" and event.get("name") == "generate_exercises":
+                exercises = event["data"]["output"].get("exercises", [])
+    except Exception as e:
+        yield sse_format({"type": "error", "error": str(e)})
         return
 
-    # 6.5 代码验证 —— 对 LLM 生成的代码块进行语法检查和自动修复
-    from backend.tools.code_validator import validate_and_enhance_code
-    validation_result = validate_and_enhance_code(full_response, auto_fix=True)
-    if validation_result["has_code"]:
-        code_issues = []
-        for cb in validation_result["code_blocks"]:
-            if not cb.get("complete", True):
-                code_issues.append({
-                    "language": cb.get("language", "python"),
-                    "issues": cb.get("issues", []),
-                    "suggestions": cb.get("suggestions", []),
-                    "fixes_applied": cb.get("fixes_applied", []),
-                })
-        if code_issues:
-            yield sse_format({
-                "type": "code_validation",
-                "has_issues": True,
-                "issues": code_issues,
-                "message": "检测到代码可能存在不完整的问题，已尝试自动修复。请在运行前检查代码。",
-            })
-
-    # 7. 记录对话历史
-    memory.add_session_message(session_id, {
-        "role": "user",
-        "content": question,
-        "timestamp": datetime.now().isoformat(),
-    })
-    memory.add_session_message(session_id, {
-        "role": "assistant",
-        "content": full_response,
-        "agent": routed_agent_type.value,
-        "timestamp": datetime.now().isoformat(),
-    })
-
-    # 7.5 辅导后自动评估：匹配对话中涉及的知识点并更新薄弱点记录
-    try:
-        subj = classification.get("subject", "general")
-        if knowledge_base and subj in knowledge_base.list_subjects():
-            kb_topics = knowledge_base.list_topics(subj)
-            combined_text = question + " " + full_response[:500]
-            for topic in kb_topics:
-                if topic in combined_text:
-                    # 知识点在对话中出现过，标记为"已讨论但未验证"（0.60）
-                    memory.update_weak_point(
-                        student_id=student_id,
-                        topic=topic,
-                        score=0.60,
-                        subject=subj,
-                    )
-    except Exception:
-        pass  # 评估失败不影响主流程
-
-    # 8. 生成推荐练习题（优先使用 MCP 工具）
-    exercises = []
-    try:
-        if weak_points:
-            weak_topic = weak_points[0]
-            # 优先尝试 MCP 工具 generate_exercise
-            mcp_result = await _call_mcp_tool_async(
-                "generate_exercise",
-                topic=weak_topic,
-                difficulty="中等",
-            )
-            if mcp_result and "error" not in mcp_result:
-                # MCP 返回单道题，包装为列表
-                exercises = [mcp_result] if isinstance(mcp_result, dict) else mcp_result
-            else:
-                # 回退到本地 LLM 生成
-                exercise_result = generate_exercise(
-                    topic=weak_topic,
-                    difficulty="medium",
-                    subject=subject if subject != "general" else "python",
-                    count=1,
-                )
-                exercises = exercise_result.get("exercises", [])
-    except Exception:
-        pass  # 练习生成失败不影响主流程
-
-    # 9. 发送完成消息
     yield sse_format({
         "type": "done",
         "done": True,
         "exercises": exercises,
         "weak_points": weak_points,
-        "agent": routed_agent_type.value,
+        "agent": agent_type,
         "suggested_topics": classification.get("suggested_tools", []),
     })
 
@@ -996,7 +908,8 @@ async def exercise_generate(request: ExerciseGenerateRequest):
     # MCP 没有覆盖时，回退到 LLM 动态生成
     if len(exercises) < request.count:
         remaining = request.count - len(exercises)
-        local_result = generate_exercise(
+        local_result = await asyncio.to_thread(
+            generate_exercise,
             topic=request.topic,
             difficulty=request.difficulty,
             subject=request.subject,
@@ -1024,7 +937,9 @@ async def exercise_evaluate(request: ExerciseEvaluateRequest):
     从正确性、完整性等维度评估，给出得分和改进建议。
     如果提供了 student_id 和 topic，还会更新学生薄弱点记录。
     """
-    result = evaluate_answer(
+    # 评估涉及 LLM 调用，放到线程池避免阻塞事件循环
+    result = await asyncio.to_thread(
+        evaluate_answer,
         question=request.question,
         student_answer=request.student_answer,
         correct_answer=request.correct_answer,
@@ -1037,7 +952,7 @@ async def exercise_evaluate(request: ExerciseEvaluateRequest):
             student_id=request.student_id,
             topic=request.topic,
             score=score,
-            subject="general",  # 可根据 question 内容推断
+            subject=request.subject,
         )
 
     return result
@@ -1067,7 +982,9 @@ async def execute_code(request: ExecuteCodeRequest):
         }
 
     start = time.time()
-    result = execute_python(
+    # 子进程执行会阻塞，放到线程池避免阻塞事件循环
+    result = await asyncio.to_thread(
+        execute_python,
         code=request.code,
         timeout=request.timeout,
     )
@@ -1516,7 +1433,8 @@ async def upload_image(file: UploadFile = File(...), student_id: str = Form("unk
     content_error = None
     try:
         vision_llm = QwenVisionLLM()
-        analyzed_content = vision_llm.analyze_image(str(file_path))
+        # 视觉模型为同步网络调用，放到线程池避免阻塞事件循环
+        analyzed_content = await asyncio.to_thread(vision_llm.analyze_image, str(file_path))
         print(f"   🖼️ 图片分析完成: {unique_name} ({len(analyzed_content)} 字符)")
     except Exception as e:
         content_error = str(e)

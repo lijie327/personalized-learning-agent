@@ -1,10 +1,10 @@
 # 📚 Tutor Agent 教学辅导系统
 
-基于 **LangGraph 多 Agent 架构**的智能教学辅导系统，集成 RAG 知识库、三层记忆管理和 MCP 工具协议，提供个性化、流式交互的 AI 辅导体验。
+基于 **FastAPI + LangGraph 多 Agent 编排**的智能教学辅导系统，集成 RAG 知识库、三层记忆管理和 MCP 工具协议，提供个性化、流式交互的 AI 辅导体验。
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-0.2.60+-orange.svg)](https://langchain-ai.github.io/langgraph/)
+[![Async SSE](https://img.shields.io/badge/Async-SSE-blue.svg)](https://fastapi.tiangolo.com/)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-0.5.11+-purple.svg)](https://www.trychroma.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -18,6 +18,8 @@
 - **Programming Tutor** —— 编程教学、代码调试与算法讲解
 - **Knowledge Agent** —— 课本知识与概念问答（含 RAG 检索增强）
 - **Assessor Agent** —— 学习评估与薄弱环节分析
+
+> 上述 4 个 specialist 由 LangGraph 的 `create_react_agent` 实现为带真实 tool-calling 的 ReAct 子图，由 supervisor 按 Router 分类结果条件路由调度（详见下方「🧩 LangGraph 多 Agent 编排」）。
 
 ### 🎓 双教学模式
 - **苏格拉底式引导（Socratic）** —— 通过反问和提示引导学生自主思考，不直接给答案
@@ -49,7 +51,21 @@
 - **意图识别** —— 自动识别问候、自我介绍、名字询问、对话历史引用等 7 种意图
 - **图片上传分析** —— 支持作业截图/题目照片上传，通过视觉模型（qwen-vl-max）识别内容
 - **MCP 工具集成** —— Model Context Protocol 工具服务器，可扩展练习生成、代码执行、评估等能力
-- **Docker 多课程部署** —— Traefik 反向代理 + 多容器实例，支持 Python / 数据结构 / 数学课程独立部署
+- **Docker 容器化部署** —— 基于 docker-compose 的一键容器化运行，便于本地与服务器部署
+
+---
+
+## 🧩 LangGraph 多 Agent 编排
+
+教学主链路采用 **LangGraph supervisor 多 Agent** 模式，由状态图（StateGraph）统一调度：
+
+- **Supervisor 路由**：复用 Router 的问题分类结果 `classification.agent_type`，经条件边直接路由到对应 specialist 子图，无需额外 LLM 调用
+- **4 个 ReAct specialist 子图**：`math` / `programming` / `knowledge` / `assessor`，每个由 `langgraph.prebuilt.create_react_agent` 编译，LLM 自主决策调用工具
+- **真实 tool-calling**：工具以 LangChain `@tool` 包装并真正被 LLM 调用（RAG 检索 / Python 代码沙箱 / 练习生成 / 答案评估），而非仅以文本注入 Prompt
+- **共享状态**：基于 `MessagesState` 的 `add_messages` 规约，specialist 子图与 supervisor 共享同一份对话历史
+- **流式输出**：编译图通过 `astream_events(v2)` 把 `on_chat_model_stream` / `on_tool_end` / `on_chain_end` 事件映射为 SSE（token / sources / done / error），逐 token 推送到前端
+
+图结构：`START →(按 agent_type 路由)→ specialist → update_memory → generate_exercises → END`
 
 ---
 
@@ -171,14 +187,13 @@ python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ### 5. Docker 部署
 
 ```bash
-# 使用 Docker Compose 启动多课程实例
+# 使用 Docker Compose 启动服务
 docker-compose up -d
 
 # 包含以下服务：
-#   - Traefik 反向代理 (端口 80/443)
-#   - Python 课程实例
-#   - 数据结构课程实例
-#   - 数学课程实例
+#   - 应用实例（FastAPI + Uvicorn）
+#   - ChromaDB 向量数据库
+#   - Redis（短期/中期记忆）
 ```
 
 ---
@@ -339,7 +354,7 @@ python test_api.py
 | 类别 | 技术 |
 |------|------|
 | Web 框架 | FastAPI + Uvicorn |
-| AI 框架 | LangChain + LangGraph |
+| AI 框架 | FastAPI + LangGraph supervisor 多 Agent 编排（create_react_agent + 真实 tool-calling）|
 | LLM | 阿里云百炼 Qwen-Max |
 | Embedding | text-embedding-v2 |
 | 向量数据库 | ChromaDB |

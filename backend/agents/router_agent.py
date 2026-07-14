@@ -116,6 +116,62 @@ class RouterAgent:
             # LLM 调用失败时使用规则兜底
             return self._rule_based_classify(question, student_profile)
 
+    async def aclassify(
+        self,
+        question: str,
+        student_profile: Optional[Dict] = None,
+        chat_history: Optional[List[Dict]] = None,
+    ) -> Dict:
+        """
+        异步版本的 classify：使用异步 LLM 调用，避免阻塞事件循环。
+        逻辑与 classify 完全一致，仅 LLM 调用改为 await。
+        """
+        profile_context = self._build_profile_context(student_profile)
+        history_context = self._build_history_context(chat_history)
+
+        system_prompt = """你是一个教育系统的智能路由分类器。
+你的任务是分析学生的问题，判断它属于哪个学科领域，应该交给哪种类型的辅导Agent处理。
+
+可用的Agent类型：
+- math: 数学、物理、逻辑推理类问题
+- programming: 编程、代码调试、算法实现类问题
+- knowledge: 课本知识、概念理解、理论问答类问题
+- assessor: 学习评估、知识点检测、薄弱环节分析类请求
+
+请严格按JSON格式返回，不要添加任何额外文字。"""
+
+        prompt = f"""请分析以下学生问题并分类：
+
+学生问题：「{question}」
+{profile_context}{history_context}
+
+请严格按以下 JSON 格式返回：
+{{
+    "subject": "识别出的学科（如 python / 数学 / data_structures）",
+    "agent_type": "math / programming / knowledge / assessor",
+    "confidence": 0.95,
+    "suggested_tools": ["工具名1", "工具名2"],
+    "reasoning": "简要说明为什么选择该Agent"
+}}
+
+请直接返回 JSON，不要添加 markdown 代码块标记。"""
+
+        try:
+            response = await self.llm.ainvoke(prompt, system_prompt=system_prompt)
+            result = self._parse_response(response)
+
+            # 确保 agent_type 是有效的枚举值
+            try:
+                result["agent_type"] = AgentType(result["agent_type"])
+            except (ValueError, KeyError):
+                result["agent_type"] = AgentType.KNOWLEDGE
+
+            return result
+
+        except (json.JSONDecodeError, RuntimeError):
+            # LLM 调用失败时使用规则兜底
+            return self._rule_based_classify(question, student_profile)
+
     # ------------------------------------------------------------------
     #  辅助方法
     # ------------------------------------------------------------------
