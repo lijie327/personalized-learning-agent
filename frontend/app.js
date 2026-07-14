@@ -425,6 +425,7 @@ class EduPlatform {
         const contentEl = document.getElementById(contentId);
         const modeSpan = messageEl.querySelector('.teaching-mode');
         let fullContent = '';
+        let allSources = [];
 
         try {
             const response = await fetch('/api/tutor', {
@@ -467,6 +468,10 @@ class EduPlatform {
                                 this.scrollToBottom();
                             }
 
+                            if (data.type === 'sources' && Array.isArray(data.sources)) {
+                                allSources = allSources.concat(data.sources);
+                            }
+
                             if (data.type === 'route' && data.agent) {
                                 modeSpan.textContent = data.agent;
                             }
@@ -474,6 +479,17 @@ class EduPlatform {
                             if (data.type === 'done') {
                                 messageEl.classList.remove('streaming');
                                 modeSpan.textContent = '直接教学';
+                                // 显示 RAG 知识来源（如果有）
+                                if (allSources.length > 0) {
+                                    const sourcesHtml = `
+                                        <div class="source-citation">
+                                            <div class="source-title">📚 知识来源</div>
+                                            <ul class="source-list">
+                                                ${allSources.map(s => `<li>${this.escapeHtml((s.topic ? s.topic + '：' : '') + (s.content || ''))}</li>`).join('')}
+                                            </ul>
+                                        </div>`;
+                                    contentEl.insertAdjacentHTML('beforeend', sourcesHtml);
+                                }
                                 // 显示代码验证警告（如果有）
                                 if (messageEl._codeValidation) {
                                     const v = messageEl._codeValidation;

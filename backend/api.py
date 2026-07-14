@@ -19,10 +19,6 @@ from backend.config import UPLOAD_DIR
 
 from backend.models import StudentRequest, AgentType
 from backend.agents.router_agent import RouterAgent
-from backend.agents.math_tutor import MathTutor
-from backend.agents.programming_tutor import ProgrammingTutor
-from backend.agents.knowledge_agent import KnowledgeAgent
-from backend.agents.assessor_agent import AssessorAgent
 from backend.memory import LearningMemory
 from backend.rag import EducationKnowledgeBase
 from backend.tools import generate_exercise, evaluate_answer, execute_python, check_syntax
@@ -35,49 +31,28 @@ from backend.llm import QwenLLM, QwenVisionLLM
 
 # 声明全局变量，实际实例由 main.py 的 lifespan 赋值
 router_agent: RouterAgent = None
-math_tutor: MathTutor = None
-programming_tutor: ProgrammingTutor = None
-knowledge_agent: KnowledgeAgent = None
-assessor_agent: AssessorAgent = None
 memory: LearningMemory = None
 knowledge_base: EducationKnowledgeBase = None
 mcp_tools: List = []  # MCP 工具列表
 
-# Agent 映射表（根据 AgentType 获取对应实例）
-AGENT_MAP: Dict[AgentType, Any] = {}
-
 
 def init_agents(
     router: RouterAgent,
-    math: MathTutor,
-    programming: ProgrammingTutor,
-    knowledge: KnowledgeAgent,
-    assessor: AssessorAgent,
     mem: LearningMemory,
     kb: EducationKnowledgeBase,
     mcp_tool_list: Optional[List] = None,
 ):
     """
-    初始化全局 Agent 实例（由 main.py 调用）。
+    初始化全局实例（由 main.py 调用）。
+    router_agent 用于问题分类；memory / knowledge_base / mcp_tools 供各 API 端点使用。
+    specialist Agent 已由 LangGraph 编译图内部按需构建，无需在此独立实例化。
     """
-    global router_agent, math_tutor, programming_tutor
-    global knowledge_agent, assessor_agent, memory, knowledge_base, AGENT_MAP, mcp_tools
+    global router_agent, memory, knowledge_base, mcp_tools
 
     router_agent = router
-    math_tutor = math
-    programming_tutor = programming
-    knowledge_agent = knowledge
-    assessor_agent = assessor
     memory = mem
     knowledge_base = kb
     mcp_tools = mcp_tool_list or []
-
-    AGENT_MAP = {
-        AgentType.MATH: math_tutor,
-        AgentType.PROGRAMMING: programming_tutor,
-        AgentType.KNOWLEDGE: knowledge_agent,
-        AgentType.ASSESSOR: assessor_agent,
-    }
 
 
 # ===================================================================
@@ -246,29 +221,6 @@ _KNOWN_SUBJECTS = (
     "data_structures", "数据结构", "assessment", "评估",
     "general",  # 通用但可能是教学相关，继续走教学流程
 )
-
-# 路由学科 → 知识库（RAG）科目映射。
-# 只有落到真实存在知识库集合的科目才会触发检索，避免对无语料的数学等科目做空检索。
-_RAG_SUBJECT_MAP = {
-    "python": "python",
-    "programming": "python",
-    "java": "python",
-    "c++": "python",
-    "c": "python",
-    "javascript": "python",
-    "data_structures": "data_structures",
-}
-
-
-def _rag_subject_for(subject: Optional[str]) -> Optional[str]:
-    """将路由学科映射到知识库科目；若映射不存在或知识库无该集合则返回 None。"""
-    if not subject:
-        return None
-    target = _RAG_SUBJECT_MAP.get(subject.lower())
-    if target and knowledge_base and target in knowledge_base.list_subjects():
-        return target
-    return None
-
 
 # 意图类型
 from enum import Enum

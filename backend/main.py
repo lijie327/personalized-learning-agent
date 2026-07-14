@@ -29,10 +29,7 @@ from backend.llm import QwenEmbeddings
 from backend.memory import LearningMemory
 from backend.rag import EducationKnowledgeBase
 from backend.agents.router_agent import RouterAgent
-from backend.agents.math_tutor import MathTutor
-from backend.agents.programming_tutor import ProgrammingTutor
-from backend.agents.knowledge_agent import KnowledgeAgent, set_shared_knowledge_base
-from backend.agents.assessor_agent import AssessorAgent
+from backend.agents.knowledge_agent import set_shared_knowledge_base
 from backend.tools.mcp_tools import mcp_manager
 from backend.api import router as api_router, init_agents
 from backend.graph import init_graph_globals, get_compiled_graph
@@ -164,39 +161,24 @@ async def lifespan(app: FastAPI):
         print(f"   [WARN] MCP tools load failed (continuing with local tools): {e}")
     print(f"   [OK] MCP tools loaded: {len(mcp_tools)} total")
 
-    # 6. 初始化各 Tutor Agent（注入 MCP 工具和 Memory）
-    print("[6/8] Initializing Tutor Agents...")
-    math_tutor = MathTutor(name="MathTutor", mcp_tools=mcp_tools, memory=memory)
-    print("   [OK] MathTutor ready")
-    programming_tutor = ProgrammingTutor(name="CodeTutor", mcp_tools=mcp_tools, memory=memory)
-    print("   [OK] CodeTutor ready")
-    knowledge_agent = KnowledgeAgent(name="KnowledgeAgent", mcp_tools=mcp_tools, memory=memory, knowledge_base=knowledge_base)
-    print("   [OK] KnowledgeAgent ready")
-    assessor_agent = AssessorAgent(name="AssessorAgent", mcp_tools=mcp_tools, memory=memory)
-    print("   [OK] AssessorAgent ready")
-
-    # 7. 初始化 Router Agent
-    print("[7/8] Initializing RouterAgent...")
+    # 6. 初始化 Router Agent（负责意图分类与子 Agent 路由）
+    print("[6/8] Initializing RouterAgent...")
     router_agent = RouterAgent()
     print("   [OK] RouterAgent ready")
 
-    # 8. 注册到 api 模块
-    print("[8/8] Registering agents to API...")
+    # 7. 注册到 api 模块（router / memory / kb / mcp tools）
+    print("[7/8] Registering components to API...")
     init_agents(
         router=router_agent,
-        math=math_tutor,
-        programming=programming_tutor,
-        knowledge=knowledge_agent,
-        assessor=assessor_agent,
         mem=memory,
         kb=knowledge_base,
         mcp_tool_list=mcp_tools,
     )
     print("   [OK] API registration done")
 
-    # 9. 构建并编译 LangGraph supervisor 多 Agent 图（注入知识库 / 记忆）
+    # 8. 构建并编译 LangGraph supervisor 多 Agent 图（注入知识库 / 记忆）
     #    编译失败会在启动时暴露，避免首个请求才崩溃。
-    print("[9/9] Building LangGraph supervisor multi-agent graph...")
+    print("[8/8] Building LangGraph supervisor multi-agent graph...")
     try:
         init_graph_globals(knowledge_base=knowledge_base, memory=memory)
         get_compiled_graph()
@@ -214,10 +196,6 @@ async def lifespan(app: FastAPI):
     app.state.knowledge_base = knowledge_base
     app.state.memory = memory
     app.state.router_agent = router_agent
-    app.state.math_tutor = math_tutor
-    app.state.programming_tutor = programming_tutor
-    app.state.knowledge_agent = knowledge_agent
-    app.state.assessor_agent = assessor_agent
     app.state.mcp_tools = mcp_tools
 
     yield
