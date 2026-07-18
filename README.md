@@ -141,10 +141,7 @@ cd education_agent
 ### 2. 安装依赖
 
 ```bash
-# 使用 pip
-pip install -r requirements.txt
-
-# 或使用 uv（推荐，更快）
+# 使用 uv 安装（推荐，uv.lock 为唯一可信源）
 uv sync
 ```
 
@@ -273,18 +270,21 @@ education_agent/
 │   ├── llm.py                   # LLM/Embedding/Vision 模型封装
 │   ├── rag.py                   # RAG 知识库（ChromaDB 向量存储）
 │   ├── memory.py                # 三层记忆系统
+│   ├── test_sandbox.py          # 代码沙箱安全测试
 │   ├── agents/                  # Agent 实现
-│   │   ├── base_tutor.py        # 基础 Tutor 抽象类
-│   │   ├── router_agent.py      # 路由 Agent（LLM + 规则兜底）
-│   │   ├── math_tutor.py        # 数学教学 Agent
-│   │   ├── programming_tutor.py # 编程教学 Agent
-│   │   ├── knowledge_agent.py   # 知识问答 Agent
-│   │   └── assessor_agent.py    # 评估 Agent
+│   │   └── router_agent.py      # 路由 Agent（LLM + 规则兜底）
+│   ├── graph/                   # LangGraph supervisor 多 Agent 编排
+│   │   ├── state.py             # 共享状态（MessagesState）
+│   │   ├── llm.py               # 图内 LLM 封装
+│   │   ├── tools.py             # 工具定义（rag_search / run_python_code ...）
+│   │   ├── agents.py            # 4 个 ReAct specialist 提示词 + 构建
+│   │   ├── nodes.py             # 条件路由 / 记忆更新 / 练习生成节点
+│   │   └── builder.py           # StateGraph 编译入口
 │   └── tools/                   # 工具函数
 │       ├── exercise_generator.py # 练习题生成
 │       ├── code_executor.py      # 代码沙箱执行
 │       ├── code_validator.py     # 代码语法验证
-│       └── mcp_tools.py          # MCP 工具管理
+│       └── mcp_tools.py          # MCP 工具管理（MultiServerMCPClient）
 ├── frontend/                    # 前端界面
 │   ├── index.html               # 主页面（三栏布局）
 │   ├── app.js                   # 前端应用逻辑
@@ -302,8 +302,8 @@ education_agent/
 ├── test_api.py                  # API 测试用例
 ├── Dockerfile                   # Docker 构建文件
 ├── docker-compose.yml           # Docker Compose 多服务编排
-├── pyproject.toml               # 项目元数据与依赖
-├── requirements.txt             # Python 依赖清单
+├── pyproject.toml               # 项目元数据与依赖（uv 管理）
+├── uv.lock                      # 依赖锁文件（uv 生成，唯一可信源）
 └── .env.example                 # 环境变量模板
 ```
 
