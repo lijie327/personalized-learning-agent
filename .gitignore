@@ -7,3 +7,12 @@ data/
 *.pyc
 .venv/
 .idea/
+
+# 本地项目记忆与工作区（含工作区内存，不入库）
+.workbuddy/
+
+# 离线依赖缓存（不入库）
+packages/
+
+# 基准测试临时产物
+report.json

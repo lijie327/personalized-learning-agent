@@ -29,7 +29,6 @@ from backend.llm import QwenEmbeddings
 from backend.memory import LearningMemory
 from backend.rag import EducationKnowledgeBase
 from backend.agents.router_agent import RouterAgent
-from backend.agents.knowledge_agent import set_shared_knowledge_base
 from backend.tools.mcp_tools import mcp_manager
 from backend.api import router as api_router, init_agents
 from backend.graph import init_graph_globals, get_compiled_graph
@@ -124,8 +123,6 @@ async def lifespan(app: FastAPI):
     )
     for subject in ["python", "data_structures"]:
         knowledge_base._get_or_create_collection(subject)
-    # 注册全局共享知识库（供 knowledge_search 工具复用，避免重复初始化）
-    set_shared_knowledge_base(knowledge_base)
     print("   [OK] KnowledgeBase ready (python / data_structures)")
 
     # 3. 初始化 Memory
