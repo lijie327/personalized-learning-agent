@@ -45,13 +45,20 @@ class SessionMemory:
             db=REDIS_DB,
             password=REDIS_PASSWORD or None,
             decode_responses=True,
+            # 强制 RESP2（protocol=2），避免新版 redis-py 在握手时发送
+            # `HELLO 3`（RESP3 协商，需 Redis 7.0+）；老版本 Redis
+            # 不支持 HELLO 会抛 ResponseError 导致启动失败。
+            protocol=2,
+            socket_connect_timeout=5,
         )
         # 测试连接
         try:
             self._redis.ping()
             print(f"   [REDIS] Connected to {REDIS_HOST}:{REDIS_PORT} (db={REDIS_DB})")
-        except redis.ConnectionError as e:
-            print(f"   [REDIS] Connection failed: {e}, falling back to in-memory dict")
+        except redis.RedisError as e:
+            # 覆盖连接失败 / 协议不兼容 / 鉴权失败等所有 Redis 异常，
+            # 统一降级为进程内 dict，保证服务在 Redis 不可用时仍可启动。
+            print(f"   [REDIS] Unavailable ({e}); falling back to in-memory dict")
             self._redis = None
             self._store: Dict[str, List[Dict[str, Any]]] = {}
             self._timestamps: Dict[str, float] = {}
