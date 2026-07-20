@@ -24,7 +24,7 @@ def init_graph_globals(knowledge_base=None, memory=None) -> None:
     _GLOBALS["memory"] = memory
 
 
-# RAG 实际存在的科目集合（与 COURSE_DATA 对应）
+# RAG 实际存在的科目集合（与 data/courses/*.md 中的科目对应）
 _RAG_SUBJECTS = ("python", "data_structures")
 
 

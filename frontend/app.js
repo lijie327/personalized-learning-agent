@@ -4,6 +4,8 @@ class EduPlatform {
         this.currentSubject = 'python';
         // 持久化 session_id：整个页面生命周期内复用，使短期记忆生效
         this.sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+        // 学生 ID：单一数据源，避免多处硬编码；优先取本地存储，缺省回退 student_001
+        this.studentId = localStorage.getItem('edu_student_id') || 'student_001';
         // 前端科目名 → 后端科目名映射
         this.subjectMapping = {
             'python': 'python',
@@ -437,7 +439,7 @@ class EduPlatform {
                 body: JSON.stringify({
                     question: userMessage,
                     subject: this.subjectMapping[this.currentSubject] || this.currentSubject,
-                    student_id: 'student_001',
+                    student_id: this.studentId,
                     session_id: this.sessionId,
                     mode: 'direct'
                 })
@@ -763,7 +765,7 @@ class EduPlatform {
             try {
                 const formData = new FormData();
                 formData.append('file', file);
-                formData.append('student_id', 'student_001');
+                formData.append('student_id', this.studentId);
 
                 const response = await fetch('/api/upload-image', {
                     method: 'POST',
@@ -834,7 +836,7 @@ class EduPlatform {
         // 从后端 API 获取真实知识图谱数据
         let graphData;
         try {
-            const response = await fetch(`/api/student/student_001/knowledge-graph`);
+            const response = await fetch(`/api/student/${this.studentId}/knowledge-graph`);
             if (response.ok) {
                 const data = await response.json();
                 graphData = { nodes: data.nodes || [], links: data.links || [] };
@@ -960,20 +962,47 @@ class EduPlatform {
         return { nodes, links };
     }
 
-    refreshLearningStats() {
-        document.querySelectorAll('.progress-fill').forEach(bar => {
-            const currentWidth = parseInt(bar.style.width) || 0;
-            const newWidth = Math.min(currentWidth + Math.floor(Math.random() * 5), 100);
-            bar.style.width = newWidth + '%';
-            bar.nextElementSibling.textContent = newWidth + '%';
-        });
+    async refreshLearningStats() {
+        // 用真实学生数据驱动进度条与统计数字，替代原先的随机增长（demo 痕迹）。
+        // 数据源与知识图谱一致：/api/student/{id}/knowledge-graph 返回的 nodes。
+        try {
+            const resp = await fetch(`/api/student/${this.studentId}/knowledge-graph`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const nodes = data.nodes || [];
 
-        document.querySelectorAll('.stat-value').forEach(stat => {
-            const current = parseInt(stat.textContent);
-            stat.textContent = current + Math.floor(Math.random() * 2) + 1;
-        });
+            // 按科目聚合掌握度（与 index.html 中的进度条标签对应）
+            const bySubject = {};
+            for (const n of nodes) {
+                const s = n.subject;
+                if (!bySubject[s]) bySubject[s] = { sum: 0, count: 0 };
+                bySubject[s].sum += (n.mastery || 0);
+                bySubject[s].count += 1;
+            }
+            const labelToSubject = { 'Python基础': 'python', '数据结构': 'data_structures', '数学': 'math' };
 
-        setTimeout(() => this.initKnowledgeGraph(), 500);
+            document.querySelectorAll('.progress-item').forEach(item => {
+                const label = item.querySelector('.progress-label')?.textContent.trim();
+                const bar = item.querySelector('.progress-fill');
+                const val = item.querySelector('.progress-value');
+                const info = labelToSubject[label] ? bySubject[labelToSubject[label]] : null;
+                const pct = info && info.count ? Math.round((info.sum / info.count) * 100) : 0;
+                if (bar) bar.style.width = pct + '%';
+                if (val) val.textContent = pct + '%';
+            });
+
+            // 统计数字绑定真实数据（分钟无真实数据源，保留原值）
+            const studied = nodes.filter(n => !n.unstudied).length;
+            document.querySelectorAll('.stat-item').forEach(item => {
+                const lbl = item.querySelector('.stat-label')?.textContent.trim();
+                const v = item.querySelector('.stat-value');
+                if (!v) return;
+                if (lbl === '个知识点') v.textContent = nodes.length;
+                else if (lbl === '道题') v.textContent = studied;
+            });
+        } catch (e) {
+            console.warn('加载学习统计失败:', e);
+        }
     }
 
     scrollToBottom() {

@@ -3,7 +3,10 @@ __pycache__/
 chroma_db/
 uploads/
 venv/
-data/
+data/*
+# 课程知识库（外置化后的教学内容）需入库，确保 clone 后知识库不为空
+!data/courses/
+!data/courses/*.md
 *.pyc
 .venv/
 .idea/

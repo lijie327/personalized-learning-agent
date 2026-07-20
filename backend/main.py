@@ -27,7 +27,7 @@ if str(ROOT_DIR) not in sys.path:
 from backend.config import HOST, PORT, UPLOAD_DIR, ALLOWED_ORIGINS, DASHSCOPE_API_KEY
 from backend.llm import QwenEmbeddings
 from backend.memory import LearningMemory
-from backend.rag import EducationKnowledgeBase
+from backend.rag import EducationKnowledgeBase, load_course_data
 from backend.agents.router_agent import RouterAgent
 from backend.tools.mcp_tools import mcp_manager
 from backend.api import router as api_router, init_agents
@@ -120,6 +120,7 @@ async def lifespan(app: FastAPI):
     print("[2/8] Initializing ChromaDB KnowledgeBase...")
     knowledge_base = EducationKnowledgeBase(
         persist_directory=str(ROOT_DIR / "chroma_db"),
+        course_data=load_course_data(),
     )
     for subject in ["python", "data_structures"]:
         knowledge_base._get_or_create_collection(subject)
