@@ -2,11 +2,36 @@
 
 基于 **FastAPI + LangGraph 多 Agent 编排**的智能教学辅导系统，集成 RAG 知识库、三层记忆管理与 MCP 工具协议，提供个性化、流式（SSE）的 AI 辅导。
 
+## 项目简介
+
+**Tutor Agent 是一个面向自学者与备考学生的「对话式个性化教学辅导系统」。** 它把**答疑讲解、练习生成、作答评估、学情追踪**整合进一个 AI 助手：学生用自然语言提问（或直接上传题目截图），系统自动识别学科与意图，调度对应的专家 Agent 给出分步讲解、配套练习与可运行的代码，并持续记录每个人的薄弱点与知识掌握度，最终形成可可视化的个人学习画像。
+
+**它解决什么痛点：**
+- **答疑不贴人**：通用大模型不懂「你」的水平，本系统融合个人记忆，讲解贴合当前进度与薄弱项
+- **练了不评估**：练习自动批改并给出错因分析与改进建议，而非只丢一个答案
+- **学情不可见**：薄弱点、知识图谱、掌握度进度一目了然，学习有迹可循
+- **代码难验证**：内置沙箱可直接运行 / 校验 Python，且安全隔离危险操作
+
+**谁会用它：** 自学编程 / 备考数据结构与算法 / 复习数学基础的个人学习者；也可作为教学辅助demo，展示多 Agent 编排 + RAG + 流式交互的工程实现。
+
 ## 界面预览
 
 ![智慧教育平台界面预览](assets/ui-screenshot.png)
 
-## 核心特性
+## 核心功能
+
+站在**使用者**视角，系统提供以下可直接使用的功能：
+
+- **智能答疑辅导**：数学计算 / 编程题 / 概念理论 / 综合评估四类问题自动路由到对应专家 Agent，流式返回分步讲解与推导
+- **练习生成**：依据当前知识点与薄弱点，自动生成配套练习题（含题目与参考答案）
+- **练习评测**：提交作答后自动批改，给出对错判定、错因分析与针对性改进建议
+- **学习画像 & 薄弱点追踪**：记录每位学生的知识点掌握度，标记薄弱项并据此调整后续辅导策略
+- **知识图谱可视化**：以「学科 → 知识点」结构展示掌握进度，前端（D3.js）交互式渲染
+- **图片识题**：上传题目截图，视觉模型识别其中的公式 / 代码 / 图表，随后直接展开辅导
+- **代码执行与校验**：在浏览器内运行 Python，沙箱拦截危险操作（RCE 防护），并可对提交代码做质量校验
+- **多轮对话记忆**：短期 / 中期 / 长期三层记忆，跨会话记住学生偏好、历史与知识状态，辅导更连贯
+
+## 技术特性
 
 - **多 Agent 协作**：Router 路由 + 4 个 ReAct specialist（math / programming / knowledge / assessor），真实 tool-calling 而非文本注入
 - **RAG 知识库**：ChromaDB 向量存储 + 混合检索（向量相似度 + 关键词重排），可扩展课程资料
@@ -122,13 +147,18 @@ docker-compose up -d   # app + redis（Chroma 走本地持久卷）
 ```
 education_agent/
 ├── backend/
-│   ├── main.py              # FastAPI 入口，lifespan 初始化
-│   ├── api.py               # 路由层（SSE / 练习 / 代码 / 画像 / 上传）
+│   ├── main.py              # FastAPI 入口，lifespan 编译图 + 初始化
+│   ├── api.py               # 组合根：include 8 个子路由（/api 前缀）
+│   ├── runtime.py           # 全局状态（agent / memory / kb / mcp）+ init_agents
 │   ├── config.py            # 配置（环境变量）
 │   ├── llm.py               # LLM / Embedding / Vision 封装
-│   ├── rag.py               # RAG 知识库（ChromaDB）
+│   ├── rag.py               # RAG 知识库（ChromaDB）+ 课程外置加载
 │   ├── memory.py            # 三层记忆
 │   ├── test_sandbox.py      # 沙箱安全测试
+│   ├── routers/             # 8 个子路由（tutor/exercise/code/student/
+│   │                       #   knowledge/session/mcp/upload）
+│   ├── services/            # 业务层（sse/context/mcp_bridge/intent/streaming）
+│   ├── schemas/            # Pydantic 请求体
 │   ├── agents/router_agent.py   # 路由 Agent（关键词 + LLM + 规则兜底）
 │   ├── graph/               # LangGraph supervisor 编排
 │   │   ├── agents.py        # 4 个 specialist 提示词 + 构建
@@ -137,6 +167,7 @@ education_agent/
 │   └── tools/               # 工具函数（code_executor / code_validator / mcp_tools）
 ├── frontend/                # HTML/CSS/JS + D3.js
 ├── mcp_servers/code_executor_server.py  # 唯一 MCP server（复用沙箱）
+├── data/courses/            # 外置课程资料（python.md / data_structures.md）
 ├── scripts/benchmark_router.py          # 路由评测脚本
 ├── chroma_db/ data/ uploads/             # 运行产物（已 gitignore）
 ├── Dockerfile docker-compose.yml pyproject.toml uv.lock
