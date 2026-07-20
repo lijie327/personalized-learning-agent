@@ -14,6 +14,11 @@
 import sys
 from pathlib import Path
 
+# Windows: 强制 UTF-8 输出，避免 GBK 控制台打印 emoji 报 UnicodeEncodeError
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 确保项目根目录在 Python 路径中
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:

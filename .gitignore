@@ -16,3 +16,6 @@ packages/
 
 # 基准测试临时产物
 report.json
+
+# 本地文档（简历等个人资料，不入库）
+docs/

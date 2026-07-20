@@ -36,11 +36,11 @@ def _record(test_name: str, success: bool, detail: str = ""):
 
 
 async def test_root():
-    """测试根路由"""
-    print("\n[1] 测试根路由 GET /...")
+    """测试服务信息端点（JSON）"""
+    print("\n[1] 测试服务信息 GET /api/info...")
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{BASE_URL}/")
+            resp = await client.get(f"{BASE_URL}/api/info")
             assert resp.status_code == 200, f"期望 200，实际 {resp.status_code}"
             data = resp.json()
             assert "name" in data, "响应缺少 name 字段"

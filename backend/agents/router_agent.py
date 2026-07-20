@@ -40,6 +40,32 @@ class RouterAgent:
         "database": AgentType.KNOWLEDGE,
     }
 
+    # 关键词预分类：明确的技术术语直接定类，避免 LLM 把概念/理论题误分到 knowledge。
+    # 覆盖评测中错分最集中的「数学/数据结构概念题」。
+    _MATH_TERM_KEYWORDS = [
+        "导数", "微分", "积分", "微积分", "概率", "条件概率", "矩阵", "线性代数",
+        "证明", "方程", "极限", "向量", "三角函数", "数列", "勾股定理",
+    ]
+    _DS_TERM_KEYWORDS = [
+        "链表", "栈", "队列", "树", "数组", "哈希", "数据结构", "二叉树",
+        "图论", "堆排序", "红黑树", "时间复杂度", "空间复杂度", "算法复杂度",
+    ]
+
+    @staticmethod
+    def _keyword_route(question: str) -> Optional[AgentType]:
+        """
+        确定性关键词预分类（在 LLM 之前执行）。
+
+        数学概念题归 MATH、数据结构/算法概念题归 PROGRAMMING，
+        避免被误路由到 knowledge；命中返回 AgentType，否则返回 None 交给 LLM。
+        """
+        q = question.lower()
+        if any(kw in q for kw in RouterAgent._MATH_TERM_KEYWORDS):
+            return AgentType.MATH
+        if any(kw in q for kw in RouterAgent._DS_TERM_KEYWORDS):
+            return AgentType.PROGRAMMING
+        return None
+
     def __init__(self):
         self.llm = QwenLLM(temperature=0.3)  # 路由需要更确定性的输出
 
@@ -70,6 +96,17 @@ class RouterAgent:
                 "reasoning": str,           # 路由推理说明
             }
         """
+        # 关键词预分类优先（确定性、零成本、可解释），命中直接返回
+        kw_agent = self._keyword_route(question)
+        if kw_agent is not None:
+            return {
+                "subject": kw_agent.value,
+                "agent_type": kw_agent,
+                "confidence": 0.95,
+                "suggested_tools": self._suggest_tools(kw_agent.value),
+                "reasoning": "关键词预分类命中技术术语，直接定类（不经 LLM）",
+            }
+
         profile_context = self._build_profile_context(student_profile)
         history_context = self._build_history_context(chat_history)
 
@@ -81,6 +118,8 @@ class RouterAgent:
 - programming: 编程、代码调试、算法实现类问题
 - knowledge: 课本知识、概念理解、理论问答类问题
 - assessor: 学习评估、知识点检测、薄弱环节分析类请求
+
+注意：数学的**概念/理论题**（如求导、证明、概率）与数据结构/算法的**概念题**（如链表、时间复杂度）应分别路由到 math / programming，不要路由到 knowledge。
 
 请严格按JSON格式返回，不要添加任何额外文字。"""
 
@@ -126,6 +165,17 @@ class RouterAgent:
         异步版本的 classify：使用异步 LLM 调用，避免阻塞事件循环。
         逻辑与 classify 完全一致，仅 LLM 调用改为 await。
         """
+        # 关键词预分类优先（确定性、零成本、可解释），命中直接返回
+        kw_agent = self._keyword_route(question)
+        if kw_agent is not None:
+            return {
+                "subject": kw_agent.value,
+                "agent_type": kw_agent,
+                "confidence": 0.95,
+                "suggested_tools": self._suggest_tools(kw_agent.value),
+                "reasoning": "关键词预分类命中技术术语，直接定类（不经 LLM）",
+            }
+
         profile_context = self._build_profile_context(student_profile)
         history_context = self._build_history_context(chat_history)
 
@@ -137,6 +187,8 @@ class RouterAgent:
 - programming: 编程、代码调试、算法实现类问题
 - knowledge: 课本知识、概念理解、理论问答类问题
 - assessor: 学习评估、知识点检测、薄弱环节分析类请求
+
+注意：数学的**概念/理论题**（如求导、证明、概率）与数据结构/算法的**概念题**（如链表、时间复杂度）应分别路由到 math / programming，不要路由到 knowledge。
 
 请严格按JSON格式返回，不要添加任何额外文字。"""
 

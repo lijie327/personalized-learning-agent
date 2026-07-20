@@ -1,81 +1,33 @@
-# 📚 Tutor Agent 教学辅导系统
+# Tutor Agent 教学辅导系统
 
-基于 **FastAPI + LangGraph 多 Agent 编排**的智能教学辅导系统，集成 RAG 知识库、三层记忆管理和 MCP 工具协议，提供个性化、流式交互的 AI 辅导体验。
+基于 **FastAPI + LangGraph 多 Agent 编排**的智能教学辅导系统，集成 RAG 知识库、三层记忆管理与 MCP 工具协议，提供个性化、流式（SSE）的 AI 辅导。
 
-[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
-[![Async SSE](https://img.shields.io/badge/Async-SSE-blue.svg)](https://fastapi.tiangolo.com/)
-[![ChromaDB](https://img.shields.io/badge/ChromaDB-0.5.11+-purple.svg)](https://www.trychroma.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
----
-
-## 🖥️ 界面预览
+## 界面预览
 
 ![智慧教育平台界面预览](assets/ui-screenshot.png)
 
----
+## 核心特性
 
-## ✨ 核心特性
+- **多 Agent 协作**：Router 路由 + 4 个 ReAct specialist（math / programming / knowledge / assessor），真实 tool-calling 而非文本注入
+- **RAG 知识库**：ChromaDB 向量存储 + 混合检索（向量相似度 + 关键词重排），可扩展课程资料
+- **三层记忆**：短期（Redis，TTL 过期）/ 中期（JSON + Redis 薄弱点追踪）/ 长期（ChromaDB 知识图谱）
+- **SSE 流式交互**：逐 token 推送，含路由 / token / 代码校验 / 完成等多类型事件
+- **代码沙箱**：浏览器内 Python 执行，沙箱守卫拦截 os/subprocess/socket 与 eval/exec（RCE 防护）
+- **图片分析**：上传题目截图，qwen-vl-max 视觉模型识别公式 / 代码 / 图表
+- **MCP 工具**：以 Model Context Protocol 暴露代码执行能力，可插拔扩展
 
-### 🧠 多 Agent 协作架构
-- **Router Agent** —— 智能路由，分析学生问题并分发到最合适的专业 Agent
-- **Math Tutor** —— 数学与逻辑推理教学
-- **Programming Tutor** —— 编程教学、代码调试与算法讲解
-- **Knowledge Agent** —— 课本知识与概念问答（含 RAG 检索增强）
-- **Assessor Agent** —— 学习评估与薄弱环节分析
+## LangGraph 多 Agent 编排
 
-> 上述 4 个 specialist 由 LangGraph 的 `create_react_agent` 实现为带真实 tool-calling 的 ReAct 子图，由 supervisor 按 Router 分类结果条件路由调度（详见下方「🧩 LangGraph 多 Agent 编排」）。
+主链路采用 **supervisor 多 Agent** 模式（`StateGraph` 调度）：
 
-### 🎓 双教学模式
-- **苏格拉底式引导（Socratic）** —— 通过反问和提示引导学生自主思考，不直接给答案
-- **直接教学（Direct）** —— 结构化讲解知识点，配合示例和练习
+- **Supervisor 路由**：复用 Router 分类结果 `agent_type`，经条件边直达对应 specialist，无额外 LLM 调用
+- **4 个 ReAct specialist**：`create_react_agent` 编译，LLM 自主决策调用工具（RAG 检索 / 代码沙箱 / 练习生成 / 答案评估）
+- **共享状态**：基于 `MessagesState` 的 `add_messages`，specialist 与 supervisor 共享对话历史
+- **流式输出**：编译图经 `astream_events(v2)` 把模型流 / 工具结束 / 链结束事件映射为 SSE，逐 token 推送到前端
 
-### 💾 三层记忆系统
-| 层级 | 存储 | 用途 |
-|------|------|------|
-| 短期记忆 | Redis | 当前会话对话上下文，TTL 自动过期 |
-| 中期记忆 | JSON + Redis | 跨学科薄弱点追踪，移动平均更新 |
-| 长期记忆 | ChromaDB | 知识图谱向量存储，持久化学生画像 |
+链路：`START →(按 agent_type 路由)→ specialist → update_memory → generate_exercises → END`
 
-### 🔍 RAG 知识库
-- 预设 **Python 基础**（变量、函数、类、异常处理）和**数据结构**（数组、链表、栈、队列、树）课程内容
-- 基于 ChromaDB 的向量化存储与混合检索（向量相似度 + 关键词重排序）
-- 支持上传自定义学习材料扩展知识库
-
-### 🌊 SSE 流式交互
-- 实时 Server-Sent Events 流式推送，逐 token 展示回复
-- 支持路由信息、token 流、练习题推荐、代码验证等多类型事件
-
-### 📊 知识图谱可视化
-- 基于 **D3.js** 的力导向图，直观展示学生知识点掌握状况
-- 颜色编码：🟢 已掌握 / 🟡 学习中 / 🔴 薄弱 / ⚪ 未学习
-
-### 🔧 更多功能
-- **代码在线执行** —— 浏览器内 Python 沙箱，即时运行与输出展示
-- **练习题生成与评估** —— 根据薄弱点自动出题并评分，更新学习档案
-- **意图识别** —— 自动识别问候、自我介绍、名字询问、对话历史引用等 7 种意图
-- **图片上传分析** —— 支持作业截图/题目照片上传，通过视觉模型（qwen-vl-max）识别内容
-- **MCP 工具集成** —— Model Context Protocol 工具服务器，可扩展练习生成、代码执行、评估等能力
-- **Docker 容器化部署** —— 基于 docker-compose 的一键容器化运行，便于本地与服务器部署
-
----
-
-## 🧩 LangGraph 多 Agent 编排
-
-教学主链路采用 **LangGraph supervisor 多 Agent** 模式，由状态图（StateGraph）统一调度：
-
-- **Supervisor 路由**：复用 Router 的问题分类结果 `classification.agent_type`，经条件边直接路由到对应 specialist 子图，无需额外 LLM 调用
-- **4 个 ReAct specialist 子图**：`math` / `programming` / `knowledge` / `assessor`，每个由 `langgraph.prebuilt.create_react_agent` 编译，LLM 自主决策调用工具
-- **真实 tool-calling**：工具以 LangChain `@tool` 包装并真正被 LLM 调用（RAG 检索 / Python 代码沙箱 / 练习生成 / 答案评估），而非仅以文本注入 Prompt
-- **共享状态**：基于 `MessagesState` 的 `add_messages` 规约，specialist 子图与 supervisor 共享同一份对话历史
-- **流式输出**：编译图通过 `astream_events(v2)` 把 `on_chat_model_stream` / `on_tool_end` / `on_chain_end` 事件映射为 SSE（token / sources / done / error），逐 token 推送到前端
-
-图结构：`START →(按 agent_type 路由)→ specialist → update_memory → generate_exercises → END`
-
----
-
-## 🏗️ 系统架构
+## 系统架构
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -88,7 +40,7 @@
 │                   FastAPI Server                         │
 │  ┌─────────────────────────────────────────────────────┐ │
 │  │                  Router Agent                       │ │
-│  │          (LLM分类 + 关键词规则兜底)                   │ │
+│  │          (关键词预分类 + LLM分类 + 规则兜底)           │ │
 │  └──────┬──────────┬──────────┬───────────┬───────────┘ │
 │         │          │          │           │              │
 │  ┌──────▼──┐ ┌─────▼───┐ ┌───▼────┐ ┌───▼────────┐     │
@@ -109,8 +61,7 @@
 │  └─────────────────────────────────────────────────┘     │
 │                                                          │
 │  ┌─────────────────────────────────────────────────┐     │
-│  │              MCP Tool Servers                     │     │
-│  │   Exercise Generator / Code Executor / Assessor  │     │
+│  │            MCP Tool Server: Code Executor         │     │
 │  └─────────────────────────────────────────────────┘     │
 └──────────────────────┬───────────────────────────────────┘
                        │
@@ -121,262 +72,87 @@
 └──────────────────────────────────────────────────────────┘
 ```
 
----
+## 核心链路
 
-## 🚀 快速开始
+1. 前端 POST `/api/tutor`（SSE），携带 `question / student_id / session_id / subject / mode`
+2. Router 先**关键词预分类**（数学/数据结构概念题直接定类），未命中再走 LLM 分类 + 规则兜底
+3. supervisor 按 `agent_type` 路由到对应 specialist 子图，子图通过 tool-calling 调用 RAG / 沙箱 / 练习工具
+4. 结果经 `astream_events` 映射为 SSE 事件流回前端；会话记忆写入 Redis，薄弱点与知识图谱写入 ChromaDB
 
-### 环境要求
+## 工程难点与亮点
 
-- Python 3.11+
-- Redis（可选，用于短期会话记忆；未安装时自动降级为内存存储）
-- 阿里云百炼 (DashScope) API Key
+- **全链路异步 + 真流式**：FastAPI `async` + `astream_events(v2)` 映射 SSE，视觉模型等同步调用下沉线程池，不阻塞事件循环
+- **真实 tool-calling 编排**：LangGraph `create_react_agent` 让 LLM 自主决定工具调用，而非把工具结果硬塞进 Prompt
+- **代码沙箱 RCE 防护**：子进程隔离 + 沙箱守卫（拦截危险模块与 `eval/exec`）+ 交互输入拦截 + 超时熔断
+- **RAG 混合检索**：向量相似度召回 + 关键词重排，检索增强教学回答
+- **Redis 降级**：`protocol=2` 兼容老版本 Redis，连接失败自动降级为内存存储，启动不崩
+- **MCP 健壮性**：单 server 重试 + 错开启动，缓解 Windows stdio 子进程握手竞态；加载失败自动降级本地工具
+- **路由评测闭环**：`scripts/benchmark_router.py` 内置 26 条标注集，可复现测量路由准确率
 
-### 1. 克隆项目
+## 测试结果
+
+- **路由准确率**：benchmark 实测 **≥90%**（关键词预分类修复了数学/数据结构概念题误分到 knowledge 的问题；早期 80.8%）
+- **沙箱安全**：`python backend/test_sandbox.py` 离线验证危险模块（os/subprocess/socket/urllib）与 eval/exec 均被拦截
+- **接口冒烟**：`python test_api.py` 覆盖健康检查、练习、代码执行、知识检索、画像、知识图谱、上传、MCP
+
+## 快速开始
 
 ```bash
-git clone <repository-url>
-cd education_agent
-```
-
-### 2. 安装依赖
-
-```bash
-# 使用 uv 安装（推荐，uv.lock 为唯一可信源）
+# 1. 依赖（uv.lock 为唯一可信源）
 uv sync
-```
 
-### 3. 配置环境变量
-
-```bash
+# 2. 配置：复制 .env.example 为 .env，填入 DASHSCOPE_API_KEY
 cp .env.example .env
-```
 
-编辑 `.env` 文件，填入你的 API Key：
-
-```env
-# 阿里云百炼 (DashScope) API 密钥（必填）
-DASHSCOPE_API_KEY=your_api_key_here
-
-# 大语言模型配置（可选）
-LLM_MODEL=qwen-max
-EMBEDDING_MODEL=text-embedding-v2
-VISION_MODEL=qwen-vl-max
-
-# 服务配置（可选）
-HOST=0.0.0.0
-PORT=8000
-UPLOAD_DIR=./uploads
-
-# Redis 配置（可选，未安装时自动降级）
-REDIS_HOST=localhost
-REDIS_PORT=6379
-```
-
-### 4. 启动服务
-
-```bash
-# 方式一：使用启动脚本
-python run.py
-
-# 方式二：直接使用 uvicorn
+# 3. 启动
 python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-启动后访问：
-- 🖥️ **前端界面**: http://localhost:8000
-- 📖 **API 文档 (Swagger)**: http://localhost:8000/docs
-- 📘 **API 文档 (ReDoc)**: http://localhost:8000/redoc
+- 前端：http://localhost:8000  ·  API 文档：http://localhost:8000/docs
+- 可选 Redis 用于短期记忆（未安装时自动降级内存存储）；`DASHSCOPE_API_KEY` 必填
 
-### 5. Docker 部署
+### Docker
 
 ```bash
-# 使用 Docker Compose 启动服务
-docker-compose up -d
-
-# 包含以下服务：
-#   - 应用实例（FastAPI + Uvicorn）
-#   - ChromaDB 向量数据库
-#   - Redis（短期/中期记忆）
+docker-compose up -d   # app + redis（Chroma 走本地持久卷）
 ```
 
----
-
-## 📡 API 接口
-
-### 核心接口
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/tutor` | **SSE 流式辅导** —— 核心接口，流式返回 AI 辅导回复 |
-| `POST` | `/api/exercise/generate` | 生成练习题 |
-| `POST` | `/api/exercise/evaluate` | 评估学生答案 |
-| `POST` | `/api/execute-code` | 在线执行 Python 代码 |
-| `GET` | `/api/student/{id}/profile` | 获取学生完整画像 |
-| `GET` | `/api/student/{id}/study-plan` | 获取个性化学习计划 |
-| `GET` | `/api/student/{id}/knowledge-graph` | 获取知识图谱数据（供 D3.js） |
-| `POST` | `/api/student/{id}/update-weak-point` | 更新知识点得分 |
-| `GET` | `/api/knowledge/search` | 知识库混合检索 |
-| `GET` | `/api/knowledge/topics` | 列出科目知识点 |
-| `POST` | `/api/upload-image` | 上传图片并分析 |
-| `DELETE` | `/api/session/{id}` | 清除会话记忆 |
-| `GET` | `/api/session/{id}/history` | 获取会话历史 |
-| `GET` | `/api/mcp/tools` | 列出 MCP 工具 |
-
-### SSE 流式辅导示例
-
-```javascript
-// 发送流式请求
-const response = await fetch('/api/tutor', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        question: "什么是 Python 的闭包？",
-        session_id: "session_abc123",
-        student_id: "student_001",
-        subject: "python",
-        mode: "direct"  // "socratic" | "direct"
-    })
-});
-
-// 读取 SSE 事件流
-const reader = response.body.getReader();
-const decoder = new TextDecoder();
-while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const text = decoder.decode(value);
-    // 解析 "data: {...}\n\n" 格式的 SSE 消息
-}
-
-// SSE 消息类型：
-// - { type: "route", agent, subject, confidence }  — 路由信息
-// - { type: "token", token, agent, mode }           — 文本片段
-// - { type: "code_validation", issues }             — 代码验证
-// - { type: "done", exercises, weak_points }         — 完成信号
-// - { type: "error", error }                         — 错误信号
-```
-
----
-
-## 📂 项目结构
+## 项目结构
 
 ```
 education_agent/
-├── backend/                     # 后端核心代码
-│   ├── main.py                  # FastAPI 应用入口，lifespan 管理
-│   ├── api.py                   # API 路由层，SSE 流式辅导
-│   ├── config.py                # 应用配置（环境变量）
-│   ├── models.py                # 数据模型（AgentType, 请求/响应）
-│   ├── llm.py                   # LLM/Embedding/Vision 模型封装
-│   ├── rag.py                   # RAG 知识库（ChromaDB 向量存储）
-│   ├── memory.py                # 三层记忆系统
-│   ├── test_sandbox.py          # 代码沙箱安全测试
-│   ├── agents/                  # Agent 实现
-│   │   └── router_agent.py      # 路由 Agent（LLM + 规则兜底）
-│   ├── graph/                   # LangGraph supervisor 多 Agent 编排
-│   │   ├── state.py             # 共享状态（MessagesState）
-│   │   ├── llm.py               # 图内 LLM 封装
-│   │   ├── tools.py             # 工具定义（rag_search / run_python_code ...）
-│   │   ├── agents.py            # 4 个 ReAct specialist 提示词 + 构建
-│   │   ├── nodes.py             # 条件路由 / 记忆更新 / 练习生成节点
-│   │   └── builder.py           # StateGraph 编译入口
-│   └── tools/                   # 工具函数
-│       ├── exercise_generator.py # 练习题生成
-│       ├── code_executor.py      # 代码沙箱执行
-│       ├── code_validator.py     # 代码语法验证
-│       └── mcp_tools.py          # MCP 工具管理（MultiServerMCPClient）
-├── frontend/                    # 前端界面
-│   ├── index.html               # 主页面（三栏布局）
-│   ├── app.js                   # 前端应用逻辑
-│   └── style.css                # 样式表
-├── mcp_servers/                 # MCP 工具服务器
-│   ├── exercise_generator_server.py
-│   ├── code_executor_server.py
-│   └── assessment_server.py
-├── scripts/                     # 工具脚本
-│   └── generate_mock_data.py    # 模拟数据生成
-├── chroma_db/                   # ChromaDB 持久化目录
-├── data/                        # 数据文件（薄弱点 JSON）
-├── uploads/                     # 上传文件目录
-├── run.py                       # 启动脚本
-├── test_api.py                  # API 测试用例
-├── Dockerfile                   # Docker 构建文件
-├── docker-compose.yml           # Docker Compose 多服务编排
-├── pyproject.toml               # 项目元数据与依赖（uv 管理）
-├── uv.lock                      # 依赖锁文件（uv 生成，唯一可信源）
-└── .env.example                 # 环境变量模板
+├── backend/
+│   ├── main.py              # FastAPI 入口，lifespan 初始化
+│   ├── api.py               # 路由层（SSE / 练习 / 代码 / 画像 / 上传）
+│   ├── config.py            # 配置（环境变量）
+│   ├── llm.py               # LLM / Embedding / Vision 封装
+│   ├── rag.py               # RAG 知识库（ChromaDB）
+│   ├── memory.py            # 三层记忆
+│   ├── test_sandbox.py      # 沙箱安全测试
+│   ├── agents/router_agent.py   # 路由 Agent（关键词 + LLM + 规则兜底）
+│   ├── graph/               # LangGraph supervisor 编排
+│   │   ├── agents.py        # 4 个 specialist 提示词 + 构建
+│   │   ├── tools.py         # 工具定义
+│   │   ├── nodes.py / builder.py / state.py / llm.py
+│   └── tools/               # 工具函数（code_executor / code_validator / mcp_tools）
+├── frontend/                # HTML/CSS/JS + D3.js
+├── mcp_servers/code_executor_server.py  # 唯一 MCP server（复用沙箱）
+├── scripts/benchmark_router.py          # 路由评测脚本
+├── chroma_db/ data/ uploads/             # 运行产物（已 gitignore）
+├── Dockerfile docker-compose.yml pyproject.toml uv.lock
 ```
 
----
-
-## 🔌 MCP 工具集成
-
-项目内置了 **Model Context Protocol (MCP)** 工具服务器，可插拔扩展：
-
-| 工具名称 | 功能 |
-|---------|------|
-| `generate_exercise` | 根据知识点和难度生成练习题 |
-| `execute_python` | 安全沙箱执行 Python 代码 |
-| `evaluate_answer` | 评估学生答案并给出反馈 |
-
-MCP 工具加载失败时，系统会自动降级使用本地工具函数，不影响核心教学功能。
-
----
-
-## 🧪 测试
-
-```bash
-# 运行 API 测试
-python test_api.py
-
-# 测试覆盖：
-#   - 服务健康检查
-#   - 预设学生数据
-#   - SSE 流式辅导（多种意图）
-#   - 练习题生成与评估
-#   - 代码在线执行
-#   - 知识库检索
-#   - 学生画像与学习计划
-#   - 知识图谱数据
-#   - 图片上传
-#   - MCP 工具调用
-```
-
----
-
-## 🎯 使用场景
-
-1. **编程教学** —— 学生提问 Python 语法、算法问题，Agent 讲解并给出可运行代码示例
-2. **数学辅导** —— 苏格拉底式引导解方程、证明题
-3. **知识问答** —— RAG 检索课程内容，结合 LLM 给出准确回答
-4. **薄弱点攻克** —— 系统自动追踪薄弱知识点，推荐针对性练习
-5. **学习评估** —— 生成练习题、评估答案、更新知识图谱
-6. **自学辅助** —— 上传题目截图，AI 识别并讲解
-
----
-
-## 🛠️ 技术栈
+## 技术栈
 
 | 类别 | 技术 |
 |------|------|
-| Web 框架 | FastAPI + Uvicorn |
-| AI 框架 | FastAPI + LangGraph supervisor 多 Agent 编排（create_react_agent + 真实 tool-calling）|
-| LLM | 阿里云百炼 Qwen-Max |
-| Embedding | text-embedding-v2 |
-| 向量数据库 | ChromaDB |
-| 缓存/会话 | Redis |
-| 前端 | 原生 HTML/CSS/JS + D3.js + Highlight.js |
-| 容器化 | Docker + Docker Compose + Traefik |
-| 协议 | SSE (Server-Sent Events) / MCP (Model Context Protocol) |
-
----
-
-## 📝 License
+| Web 框架 | FastAPI + Uvicorn（异步 SSE） |
+| AI 编排 | LangGraph supervisor 多 Agent（create_react_agent + 真实 tool-calling） |
+| 模型 | 阿里云百炼 qwen-max / text-embedding-v2 / qwen-vl-max |
+| 向量库 | ChromaDB |
+| 记忆 | Redis（短期/中期）+ ChromaDB（长期，可降级） |
+| 前端 | 原生 HTML/CSS/JS + D3.js |
+| 协议 | SSE / MCP |
+| 部署 | Docker + Docker Compose |
 
 MIT License
-
----
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！

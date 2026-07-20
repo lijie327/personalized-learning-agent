@@ -38,21 +38,17 @@ class MCPToolManager:
         self._server_clients: Dict[str, MultiServerMCPClient] = {}
 
     def _build_server_configs(self) -> Dict[str, Dict[str, Any]]:
-        """构建所有MCP Server配置（使用绝对路径）。"""
+        """构建所有MCP Server配置（使用绝对路径）。
+
+        当前仅保留 code_executor 一个重点 server：其代码执行能力复用
+        backend.tools.code_executor 的沙箱守卫，安全边界与本地实现一致；
+        习题生成 / 评估 / 学情分析等能力已由本地工具(generate_practice /
+        evaluate_practice)与 assessor Agent 覆盖，无需重复暴露为 MCP。
+        """
         return {
             "code_executor": {
                 "command": sys.executable,
                 "args": [_mcp_server_path("mcp_servers/code_executor_server.py")],
-                "transport": "stdio",
-            },
-            "exercise_generator": {
-                "command": sys.executable,
-                "args": [_mcp_server_path("mcp_servers/exercise_generator_server.py")],
-                "transport": "stdio",
-            },
-            "assessment": {
-                "command": sys.executable,
-                "args": [_mcp_server_path("mcp_servers/assessment_server.py")],
                 "transport": "stdio",
             },
         }

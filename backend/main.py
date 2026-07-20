@@ -265,6 +265,19 @@ async def root():
     }
 
 
+@app.get("/api/info", tags=["info"])
+async def api_info():
+    """返回服务元信息（JSON），供健康检查与测试断言使用。"""
+    return {
+        "name": "Tutor Agent 教学辅导系统",
+        "version": "1.0.0",
+        "status": "running",
+        "docs": "/docs",
+        "api_prefix": "/api",
+        "available_agents": ["router", "math", "programming", "knowledge", "assessor"],
+    }
+
+
 @app.get("/health", tags=["health"])
 async def health_check():
     return {

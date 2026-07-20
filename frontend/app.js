@@ -369,13 +369,16 @@ class EduPlatform {
     }
 
     processMessageContent(content) {
+        // 先整体转义，杜绝 LLM 输出（或历史脏数据）中的 HTML 注入（XSS）
+        content = this.escapeHtml(content);
+
         // -- 将 Markdown 代码块转为与正文一致的纯文本格式 --
         //    不单独成块，不使用特殊背景色，保持和普通文字一样的视觉风格
+        //    （此时 code 已被转义，直接使用，不再二次 escape 防止双转义）
         content = content.replace(/```\s*(\w+)?\s*\r?\n([\s\S]*?)```/g, (match, lang, code) => {
             const codeTrimmed = code.trim();
-            const escapedCode = this.escapeHtml(codeTrimmed);
             // 用 <pre> 保留换行，但不加特殊样式类，与正文融为一体
-            return `<pre class="inline-code">${escapedCode}</pre>`;
+            return `<pre class="inline-code">${codeTrimmed}</pre>`;
         });
 
         // 处理行内代码: `code`
